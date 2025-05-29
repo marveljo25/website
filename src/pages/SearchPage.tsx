@@ -1,16 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  getDocs,
-  limit,
-  startAfter,
-  QueryDocumentSnapshot,
-  DocumentData,
-} from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../supabase/config';
 import { Property } from '../types';
 import Navbar from '../components/Navbar';
 import PropertyCard from '../components/PropertyCard';
@@ -21,9 +10,9 @@ const SearchPage: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
   const [filters, setFilters] = useState({
     wilayah: '',
     jenisPemasaran: '',
@@ -34,8 +23,8 @@ const SearchPage: React.FC = () => {
   });
   const [showFilters, setShowFilters] = useState(false);
 
+  const ITEMS_PER_PAGE = 12;
 
-  // Parse query parameters from URL (runs on mount and when URL search changes)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
@@ -45,58 +34,47 @@ const SearchPage: React.FC = () => {
       hargaMin: parseInt(params.get('hargaMin') || '0'),
       hargaMax: parseInt(params.get('hargaMax') || '1000000000'),
       kamarTidur: parseInt(params.get('kamarTidur') || '0'),
-      kamarMandi: parseInt(params.get('kamarMandi') || '0'), // Fixed here
+      kamarMandi: parseInt(params.get('kamarMandi') || '0'),
     });
 
-    setLastVisible(null);
+    setCurrentPage(0);
     setHasMore(true);
-  }, [window.location.search]); // Watch URL changes (optional: can use React Router for better sync)
+  }, [window.location.search]);
 
-  // Fetch properties based on filters
   useEffect(() => {
     const fetchProperties = async () => {
       setIsLoading(true);
       setError('');
 
       try {
-        const qRef = collection(db, 'properties');
-        const constraints: any[] = [];
+        let query = supabase
+          .from('properties')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(0, ITEMS_PER_PAGE - 1);
 
-        // Apply filters only if they have meaningful values
-        if (filters?.wilayah) {
-          constraints.push(where('wilayah', '==', filters.wilayah));
+        if (filters.wilayah) {
+          query = query.ilike('wilayah', `%${filters.wilayah}%`);
         }
-        if (filters?.hargaMin && filters.hargaMin > 0) {
-          constraints.push(where('hargaJual', '>=', filters.hargaMin));
+        if (filters.hargaMin > 0) {
+          query = query.gte('hargaJual', filters.hargaMin);
         }
-        if (filters?.hargaMax && filters.hargaMax < 1000000000) {
-          constraints.push(where('hargaJual', '<=', filters.hargaMax));
+        if (filters.hargaMax < 1000000000) {
+          query = query.lte('hargaJual', filters.hargaMax);
         }
-        if (filters?.kamarTidur && filters.kamarTidur > 0) {
-          constraints.push(where('kamarTidur', '>=', filters.kamarTidur));
+        if (filters.kamarTidur > 0) {
+          query = query.gte('kamarTidur', filters.kamarTidur);
         }
-        if (filters?.kamarMandi && filters.kamarMandi > 0) {
-          constraints.push(where('kamarMandi', '>=', filters.kamarMandi));
+        if (filters.kamarMandi > 0) {
+          query = query.gte('kamarMandi', filters.kamarMandi);
         }
 
-        // Always order by tanggal desc and limit the results
-        const propertyQuery = query(
-          qRef,
-          ...constraints,
-          orderBy('tanggal', 'desc'),
-          limit(12)
-        );
+        const { data, error: supabaseError } = await query;
 
-        const snapshot = await getDocs(propertyQuery);
+        if (supabaseError) throw supabaseError;
 
-        const propertyData = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Property[];
-
-        setProperties(propertyData);
-        setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
-        setHasMore(snapshot.docs.length === 12);
+        setProperties(data as Property[]);
+        setHasMore(data.length === ITEMS_PER_PAGE);
       } catch (err) {
         console.error('Error fetching properties:', err);
         setError('Failed to load properties');
@@ -109,49 +87,45 @@ const SearchPage: React.FC = () => {
   }, [filters]);
 
   const loadMoreProperties = async () => {
-    if (!lastVisible || isLoadingMore) return;
+    if (!hasMore || isLoadingMore) return;
 
     setIsLoadingMore(true);
+    const nextPage = currentPage + 1;
+    const start = nextPage * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE - 1;
 
     try {
-      const qRef = collection(db, 'properties');
-      const constraints = [];
+      let query = supabase
+        .from('properties')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(start, end);
 
-      // Apply filters
       if (filters.wilayah) {
-        constraints.push(where('wilayah', '==', filters.wilayah));
+        query = query.ilike('wilayah', `%${filters.wilayah}%`);
       }
       if (filters.hargaMin > 0) {
-        constraints.push(where('hargaJual', '>=', filters.hargaMin));
+        query = query.gte('hargaJual', filters.hargaMin);
       }
       if (filters.hargaMax < 1000000000) {
-        constraints.push(where('hargaJual', '<=', filters.hargaMax));
+        query = query.lte('hargaJual', filters.hargaMax);
       }
       if (filters.kamarTidur > 0) {
-        constraints.push(where('kamarTidur', '>=', filters.kamarTidur));
+        query = query.gte('kamarTidur', filters.kamarTidur);
       }
       if (filters.kamarMandi > 0) {
-        constraints.push(where('kamarMandi', '>=', filters.kamarMandi));
+        query = query.gte('kamarMandi', filters.kamarMandi);
       }
 
-      const propertyQuery = query(
-        qRef,
-        ...constraints,
-        orderBy('tanggal', 'desc'),
-        startAfter(lastVisible),
-        limit(12)
-      );
+      const { data, error: supabaseError } = await query;
 
-      const snapshot = await getDocs(propertyQuery);
+      if (supabaseError) throw supabaseError;
 
-      const newProperties = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Property[];
-
-      setProperties((prev) => [...prev, ...newProperties]);
-      setLastVisible(snapshot.docs[snapshot.docs.length - 1] || null);
-      setHasMore(snapshot.docs.length === 12);
+      if (data) {
+        setProperties(prev => [...prev, ...data]);
+        setHasMore(data.length === ITEMS_PER_PAGE);
+        setCurrentPage(nextPage);
+      }
     } catch (err) {
       console.error('Error loading more properties:', err);
     } finally {
@@ -159,7 +133,6 @@ const SearchPage: React.FC = () => {
     }
   };
 
-  // Update search filters via SearchBar (wilayah, hargaMin, hargaMax)
   const handleSearch = (wilayah: string, hargaMin: number, hargaMax: number) => {
     const params = new URLSearchParams();
 
@@ -167,7 +140,6 @@ const SearchPage: React.FC = () => {
     if (hargaMin > 0) params.set('hargaMin', hargaMin.toString());
     if (hargaMax < 1000000000) params.set('hargaMax', hargaMax.toString());
 
-    // Preserve existing filters for kamarTidur, kamarMandi, featured
     if (filters.kamarTidur > 0) params.set('kamarTidur', filters.kamarTidur.toString());
     if (filters.kamarMandi > 0) params.set('kamarMandi', filters.kamarMandi.toString());
 
@@ -181,30 +153,16 @@ const SearchPage: React.FC = () => {
     }));
   };
 
-  // Handle filter changes, parse numbers where needed
   const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const target = event.target;
-
-    // Check if it's an input of type checkbox to access checked
-    if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-      const { name, checked } = target;
-      setFilters(prev => ({ ...prev, [name]: checked }));
-    } else {
-      // For select and other inputs, use value
-      const { name, value } = target;
-      setFilters(prev => ({
-        ...prev,
-        [name]:
-          // if numeric fields, parse as number
-          name === 'hargaMin' || name === 'hargaMax' || name === 'kamarTidur' || name === 'kamarMandi'
-            ? Number(value)
-            : value,
-      }));
-    }
+    const { name, value } = event.target;
+    setFilters(prev => ({
+      ...prev,
+      [name]: ['hargaMin', 'hargaMax', 'kamarTidur', 'kamarMandi'].includes(name)
+        ? Number(value)
+        : value,
+    }));
   };
 
-
-  // Apply filters: update URL and close mobile filter
   const applyFilters = () => {
     const params = new URLSearchParams();
 
@@ -221,7 +179,6 @@ const SearchPage: React.FC = () => {
     }
   };
 
-  // Reset filters to defaults
   const resetFilters = () => {
     setFilters({
       wilayah: '',
@@ -231,18 +188,18 @@ const SearchPage: React.FC = () => {
       kamarTidur: 0,
       kamarMandi: 0,
     });
+    window.history.pushState({}, '', '/search');
   };
+
   const isFilterActive = () => {
     return (
       filters.wilayah !== '' ||
-      (filters.hargaMin !== 0 && filters.hargaMin !== null) ||
-      (filters.hargaMax !== 1000000000 && filters.hargaMax !== null) ||
-      (filters.kamarTidur !== 0 && filters.kamarTidur !== null) ||
-      (filters.kamarMandi !== 0 && filters.kamarMandi !== null)
+      filters.hargaMin !== 0 ||
+      filters.hargaMax !== 1000000000 ||
+      filters.kamarTidur !== 0 ||
+      filters.kamarMandi !== 0
     );
   };
-
-
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -301,7 +258,7 @@ const SearchPage: React.FC = () => {
                 <div className="pt-4 flex flex-col space-y-2">
                   <button
                     onClick={applyFilters}
-                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    className="w-full px-4 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2"
                   >
                     Apply Filters
                   </button>
@@ -318,10 +275,8 @@ const SearchPage: React.FC = () => {
 
           {/* Main Content */}
           <div className="flex-grow">
-            {/* View Toggle and Mobile Filter Button */}
+            {/* Mobile Filter Button */}
             <div className="flex justify-between mb-4">
-
-              {/* Mobile Filter Button */}
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className="md:hidden px-3 py-2 bg-white text-gray-700 rounded-md hover:bg-gray-100 flex items-center"
@@ -339,13 +294,13 @@ const SearchPage: React.FC = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      kamarTidur
+                      Kamar Tidur
                     </label>
                     <select
                       name="kamarTidur"
                       value={filters.kamarTidur}
                       onChange={handleFilterChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-rose-500 focus:border-rose-500"
                     >
                       <option value="0">Any</option>
                       <option value="1">1+</option>
@@ -364,7 +319,7 @@ const SearchPage: React.FC = () => {
                       name="kamarMandi"
                       value={filters.kamarMandi}
                       onChange={handleFilterChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-rose-500 focus:border-rose-500"
                     >
                       <option value="0">Any</option>
                       <option value="1">1+</option>
@@ -377,7 +332,7 @@ const SearchPage: React.FC = () => {
                   <div className="pt-4 flex space-x-2">
                     <button
                       onClick={applyFilters}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      className="flex-1 px-4 py-2 bg-rose-600 text-white rounded-md hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2"
                     >
                       Apply
                     </button>
@@ -398,8 +353,6 @@ const SearchPage: React.FC = () => {
                 {properties.length} {properties.length === 1 ? 'property' : 'properties'} found
               </div>
             )}
-
-
 
             {/* Error Message */}
             {error && (
@@ -449,7 +402,7 @@ const SearchPage: React.FC = () => {
                     <button
                       onClick={loadMoreProperties}
                       disabled={isLoadingMore}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-blue-400"
+                      className="px-6 py-3 bg-rose-600 text-white rounded-md hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 disabled:bg-rose-400"
                     >
                       {isLoadingMore ? 'Loading...' : 'Load More Properties'}
                     </button>
