@@ -81,25 +81,30 @@ const HomePage: React.FC = () => {
         </div>
 
         {/* Daftar Properti */}
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[...Array(8)].map((_, index) => (
-              <div key={index} className="animate-pulse">
-                <div className="aspect-square bg-gray-200 rounded-xl mb-3"></div>
-                <div className="space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {properties.map(property => (
-              <PropertyCard key={property.id} property={property} />
-            ))}
-          </div>
-        )}
+{isLoading ? (
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    {[...Array(8)].map((_, index) => (
+      <div key={index} className="animate-pulse">
+        <div className="aspect-square bg-gray-200 rounded-xl mb-3"></div>
+        <div className="space-y-2">
+          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+        </div>
+      </div>
+    ))}
+  </div>
+) : properties.length === 0 ? (
+  <div className="text-center text-gray-500 py-12">
+    Tidak ada properti ditemukan.
+  </div>
+) : (
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    {properties.map(property => (
+      <PropertyCard key={property.id} property={property} />
+    ))}
+  </div>
+)}
+
       </main>
     </div>
   );
