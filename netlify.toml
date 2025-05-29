@@ -8,7 +8,6 @@
   port = 3000
   functions = "netlify/functions"
   node_bundler = "esbuild"
-  external_node_modules = ["firebase-admin"]
   included_files = ["netlify/functions/*.mts"]
 
 
