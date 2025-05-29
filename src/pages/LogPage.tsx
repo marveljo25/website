@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
-import { supabase } from '../supabase'; // Your supabase client instance
+import { supabase } from '../supabase/config';
 
 type LogEntry = {
   id: string;
