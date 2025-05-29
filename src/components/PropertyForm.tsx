@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../supabase/config';
 import { Property } from '../types';
 import { X } from 'lucide-react';
 import PictureVideoUploader from './PictureVideoUploader';
@@ -27,7 +26,7 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
     kamarMandi: property?.kamarMandi || '',
     lain: property?.lain || '',
     legal: property?.legal || '',
-    legalCustom: '',                           // Temporary variable
+    legalCustom: '',
     hargaJual: property?.hargaJual || 0,
     fee: property?.fee || '',
     listing: property?.listing || '',
@@ -46,46 +45,33 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
       images: [...prev.images, ...urls],
     }));
   };
+
   const formatToRupiah = (value: string | number) => {
     if (!value) return 'Rp ';
     const number = typeof value === 'string' ? parseInt(value) : value;
     return 'Rp ' + number.toLocaleString('id-ID');
   };
 
-
   const handleRemoveImage = async (indexToRemove: number) => {
     const imageUrl = formData.images[indexToRemove];
     setDeletingImages(prev => [...prev, indexToRemove]);
 
     try {
-      // Extract public_id from the URL
-      const urlParts = imageUrl.split('/');
-      const publicIdWithExtension = urlParts[urlParts.length - 1];
-      const publicId = publicIdWithExtension.split('.')[0];
-
-      // Call Netlify function to delete from Cloudinary
       const response = await fetch('/.netlify/functions/cloudinary', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          public_id: publicId,
+          public_id: imageUrl.split('/').pop()?.split('.')[0],
           action: 'delete'
         }),
       });
+
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Failed to delete image');
+        throw new Error('Failed to delete image');
       }
 
-      const result = await response.json();
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      // Remove from local state
       setFormData(prev => ({
         ...prev,
         images: prev.images.filter((_, idx) => idx !== indexToRemove),
@@ -97,42 +83,34 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
       setDeletingImages(prev => prev.filter(idx => idx !== indexToRemove));
     }
   };
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
 
-    const numericFields = ['kode', 'luasTanah', 'lantai', 'luasBangunan', 'kamarTidur', 'kamarMandi', 'hargaJual'];
     if (name === 'hargaJual') {
-      const numericValue = Number(value.replace(/\D/g, '')); // Convert to number
-
+      const numericValue = Number(value.replace(/\D/g, ''));
       setFormData(prev => ({
         ...prev,
-        hargaJual: numericValue, // Only store the raw number
+        hargaJual: numericValue,
       }));
     } else {
       setFormData(prev => ({
         ...prev,
-        [name]: value,
+        [name]: name === 'cluster' ? value.toUpperCase() : value,
       }));
     }
-    if (numericFields.includes(name) && !/^\d*$/.test(value)) {
-      return;
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === 'cluster' ? value.toUpperCase() : value
-    }));
   };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
+
     const today = new Date();
     const day = String(today.getDate()).padStart(2, '0');
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const year = today.getFullYear();
-    // Convert necessary fields to numbers once
+
     const dataToSave = {
       ...formData,
       kode: Number(formData.kode) || 0,
@@ -142,45 +120,52 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
       kamarTidur: Number(formData.kamarTidur) || 0,
       kamarMandi: Number(formData.kamarMandi) || 0,
       hargaJual: Number(formData.hargaJual) || 0,
-      legal:
-        formData.legal === 'LAIN_LAIN' && formData.legalCustom.trim().toUpperCase() !== ''
-          ? formData.legalCustom
-          : formData.legal,
+      legal: formData.legal === 'LAIN_LAIN' && formData.legalCustom.trim().toUpperCase() !== ''
+        ? formData.legalCustom
+        : formData.legal,
     };
 
     try {
       if (property?.id) {
-        const propertyRef = doc(db, 'properties', property.id);
-        await updateDoc(propertyRef, {
-          ...dataToSave,
-          timestamp: serverTimestamp(),
-        });
+        const { error: updateError } = await supabase
+          .from('properties')
+          .update({
+            ...dataToSave,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', property.id);
+
+        if (updateError) throw updateError;
       } else {
-        await addDoc(collection(db, 'properties'), {
-          ...dataToSave,
-          tanggal: `${day}-${month}-${year}`,
-          timestamp: serverTimestamp(),
-        });
+        const { error: insertError } = await supabase
+          .from('properties')
+          .insert([{
+            ...dataToSave,
+            tanggal: `${day}-${month}-${year}`,
+            created_at: new Date().toISOString(),
+          }]);
+
+        if (insertError) throw insertError;
       }
+
       onSuccess();
       handleClose();
     } catch (err) {
       console.error('Error saving property:', err);
-      setError('Gagal menyimpan properti. Pastikan data anda terisi semua.');
+      setError('Failed to save property. Please ensure all required fields are filled.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
   const handleClose = async () => {
     if (!property?.id && formData.images.length > 0) {
       try {
-
         for (const imgUrl of formData.images) {
-          const urlParts = imgUrl.split('/');
-          const publicIdWithExtension = urlParts[urlParts.length - 1];
-          const publicId = publicIdWithExtension.split('.')[0];
+          const publicId = imgUrl.split('/').pop()?.split('.')[0];
+          if (!publicId) continue;
 
-          const response = await fetch('/.netlify/functions/cloudinary', {
+          await fetch('/.netlify/functions/cloudinary', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -190,24 +175,13 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
               action: 'delete',
             }),
           });
-
-          if (!response.ok) {
-            const text = await response.text();
-            console.error('Failed to delete:', imgUrl, text);
-          } else {
-            const result = await response.json();
-            if (result.error) {
-              console.error('Cloudinary error:', result.error);
-            }
-          }
         }
       } catch (err) {
         console.error('Error deleting uploaded images on close:', err);
       }
     }
-    onClose(); // call the original close function
+    onClose();
   };
-
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -285,7 +259,7 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 value={formData.description}
                 onChange={handleChange}
                 rows={4}
-                maxLength={1020} // 👈 set your desired limit here
+                maxLength={1020}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md resize-none"
               />
               <p className="text-xs text-gray-500 mt-1">{formData.description.length}/1020 karakter</p>
@@ -299,7 +273,7 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 name="kode"
                 value={formData.kode}
                 onChange={handleChange}
-                pattern="^[0-9]*$"  // Restrict to numbers only
+                pattern="^[0-9]*$"
                 required
                 placeholder="123456"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -460,7 +434,6 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
               />
             </div>
 
-
             {/* Fee */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Fee</label>
@@ -472,8 +445,9 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
+
+            {/* Legal */}
             <div>
-              {/* Legal */}
               <label className="block text-sm font-medium text-gray-700">Legal</label>
               <select
                 name="legal"
@@ -499,7 +473,8 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 />
               )}
             </div>
-            {/* Fee */}
+
+            {/* Lain */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Lain</label>
               <input
@@ -510,6 +485,7 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
+
             {/* Listing */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Listing</label>
@@ -521,6 +497,7 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
+
             <button
               type="submit"
               disabled={isSubmitting}
@@ -528,11 +505,10 @@ const PropertyForm: React.FC<PropertyFormProps> = ({ property, onClose, onSucces
             >
               {isSubmitting ? 'Submitting...' : 'Submit'}
             </button>
-
           </form>
         </div>
-      </div >
-    </div >
+      </div>
+    </div>
   );
 };
 
