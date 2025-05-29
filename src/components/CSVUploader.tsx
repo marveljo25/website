@@ -34,7 +34,7 @@ const CSVUploader: React.FC = () => {
       lain: row['Lain-Lain'] ?? '',
       legal: row['LEGAL'] || '',
       hargaJual: (() => {
-        const rawPrice = (row['H. JUAL'] || '').trim();
+        const rawPrice = (row['HJ'] || '').trim();
         const cleanedPrice = rawPrice.replace(/,/g, '');
         return !isNaN(Number(cleanedPrice)) ? Number(cleanedPrice) : 0;
       })(),
