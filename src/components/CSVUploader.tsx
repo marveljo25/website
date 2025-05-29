@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { Upload, Check, AlertCircle } from 'lucide-react';
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from '../firebase/config';
+// Supabase client
+import { supabase } from '../supabase/client';
 
 const CSVUploader: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -46,7 +46,6 @@ const CSVUploader: React.FC = () => {
     }));
   };
 
-
   const handleUpload = () => {
     if (!file) {
       setUploadStatus('error');
@@ -72,14 +71,18 @@ const CSVUploader: React.FC = () => {
           if (cleanedData.length === 0) {
             throw new Error('File CSV kosong');
           }
+
           setStatusMessage(`Mengunggah ${cleanedData.length} properti...`);
           let successCount = 0;
+
           for (let i = 0; i < cleanedData.length; i++) {
-            await addDoc(collection(db, 'properties'), cleanedData[i]);
+            const { error } = await supabase.from('properties').insert([cleanedData[i]]);
+            if (error) throw error;
             successCount++;
             const progress = Math.round(((i + 1) / cleanedData.length) * 100);
             setUploadProgress(progress);
           }
+
           setUploadStatus('success');
           setStatusMessage(`Berhasil mengunggah ${successCount} properti`);
         } catch (error) {
