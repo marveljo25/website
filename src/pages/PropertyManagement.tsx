@@ -1,14 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import { Trash2, Edit, Plus, ShieldAlert } from 'lucide-react';
-import { collection, getDocs, doc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../supabase/config';
 import { Property } from '../types';
 import PropertyForm from '../components/PropertyForm';
 import { useAuth } from '../context/AuthContext';
 
 const PropertyManagement: React.FC = () => {
-  const { userData } = useAuth();
+  const { currentUser } = useAuth();
   const [properties, setProperties] = useState<Property[]>([]);
   const [error, setError] = useState('');
   const [showPropertyForm, setShowPropertyForm] = useState(false);
@@ -17,26 +16,77 @@ const PropertyManagement: React.FC = () => {
   const selectAllRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchProperties()
+    fetchProperties();
     if (selectAllRef.current) {
       selectAllRef.current.indeterminate =
         selectedIds.length > 0 && selectedIds.length < properties.length;
     }
   }, [selectedIds, properties.length]);
 
-  async function deleteAllProperties() {
-    const propertiesRef = collection(db, "properties");
-    const snapshot = await getDocs(propertiesRef);
+  const fetchProperties = async () => {
+    try {
+      const { data, error: supabaseError } = await supabase
+        .from('properties')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (snapshot.empty) return;
+      if (supabaseError) throw supabaseError;
+      setProperties(data as Property[]);
+    } catch (err) {
+      console.error('Error fetching properties:', err);
+      setError('Failed to load properties');
+    }
+  };
 
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((docSnap) => {
-      batch.delete(doc(db, "properties", docSnap.id));
-    });
+  const handleDeleteProperty = async (propertyId: string) => {
+    if (!confirm('Are you sure you want to delete this property?')) return;
 
-    await batch.commit();
-  }
+    try {
+      const { error: deleteError } = await supabase
+        .from('properties')
+        .delete()
+        .eq('id', propertyId);
+
+      if (deleteError) throw deleteError;
+      setProperties(properties.filter(property => property.id !== propertyId));
+    } catch (err) {
+      console.error('Error deleting property:', err);
+      setError('Failed to delete property');
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedIds.length} properties?`)) return;
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('properties')
+        .delete()
+        .in('id', selectedIds);
+
+      if (deleteError) throw deleteError;
+      setProperties(properties.filter(p => !selectedIds.includes(p.id)));
+      setSelectedIds([]);
+    } catch (err) {
+      console.error('Error deleting properties:', err);
+      setError('Failed to delete selected properties');
+    }
+  };
+
+  const handleEditProperty = (property: Property) => {
+    setSelectedProperty(property);
+    setShowPropertyForm(true);
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(selectedIds.length === properties.length ? [] : properties.map(p => p.id));
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
+    );
+  };
 
   const handleDownloadCSV = () => {
     const selectedProperties = properties.filter(p => selectedIds.includes(p.id));
@@ -75,7 +125,7 @@ const PropertyManagement: React.FC = () => {
         escapeCSV(p.hargaJual),
         escapeCSV(p.fee),
         escapeCSV(p.listing),
-        escapeCSV(p.images?.join(' | ')), // separate image URLs by pipe
+        escapeCSV(p.images?.join(' | ')),
         escapeCSV(p.tanggal),
         escapeCSV(p.timestamp?.toDate?.().toISOString?.() || '')
       ])
@@ -94,70 +144,7 @@ const PropertyManagement: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const handleDeleteSelected = async () => {
-    if (!confirm(`Are you sure you want to delete ${selectedIds.length} properties?`)) return;
-    try {
-      if (selectedIds.length === properties.length) {
-        await deleteAllProperties();
-      } else {
-        const batch = writeBatch(db);
-        selectedIds.forEach((id) => {
-          batch.delete(doc(db, "properties", id));
-        });
-        await batch.commit();
-      }
-      setSelectedIds([]);
-    } catch (error) {
-      console.error("Failed to delete:", error);
-    }
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.length === properties.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(properties.map(p => p.id));
-    }
-  };
-
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds(prev =>
-      prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
-    );
-  };
-
-
-  const fetchProperties = async () => {
-    try {
-      const propertiesSnapshot = await getDocs(collection(db, 'properties'));
-      const propertiesData = propertiesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Property[];
-      setProperties(propertiesData);
-    } catch (err) {
-      console.error('Error fetching properties:', err);
-      setError('Failed to load properties');
-    }
-  };
-
-  const handleDeleteProperty = async (propertyId: string) => {
-    if (!confirm('Are you sure you want to delete this property?')) return;
-
-    try {
-      await deleteDoc(doc(db, 'properties', propertyId));
-      setProperties(properties.filter(property => property.id !== propertyId));
-    } catch (err) {
-      console.error('Error deleting property:', err);
-      setError('Failed to delete property');
-    }
-  };
-
-  const handleEditProperty = (property: Property) => {
-    setSelectedProperty(property);
-    setShowPropertyForm(true);
-  };
-  if (!userData) {
+  if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
@@ -179,7 +166,7 @@ const PropertyManagement: React.FC = () => {
     );
   }
 
-  if (userData.role !== 'admin' && userData.role !== 'super') {
+  if (currentUser.role !== 'admin' && currentUser.role !== 'super') {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
@@ -227,7 +214,6 @@ const PropertyManagement: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 gap-6">
-          {/* Property Management */}
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-semibold mb-4">Manajemen Properti</h2>
             <div className="overflow-x-auto">
