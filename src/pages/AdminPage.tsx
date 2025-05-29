@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar';
 import { getAuth } from 'firebase/auth';
 import CSVUploader from '../components/CSVUploader';
 import { ShieldAlert, Trash2, RefreshCw, Lock, Unlock, UserPlus } from 'lucide-react';
-import { collection, getDocs} from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { User } from '../types';
 
@@ -24,12 +24,12 @@ const AdminPage: React.FC = () => {
     try {
       const usersSnapshot = await getDocs(collection(db, 'users'));
       const usersData = usersSnapshot.docs.map(doc => ({
-        uid: doc.id,  // assuming uid is the document id
-        email: doc.data().email || '', // assuming email is stored in the document data
-        displayName: doc.data().displayName || doc.data().email?.split('@')[0], // set displayName to email split if missing
-        role: doc.data().role || '', // default to false if missing
-        favorites: doc.data().favorites || [], // default to an empty array if missing
-        disabled: doc.data().disabled || false, // default to false if missing
+        uid: doc.id,
+        email: doc.data().email || '',
+        displayName: doc.data().displayName || doc.data().email?.split('@')[0],
+        role: doc.data().role || '',
+        favorites: doc.data().favorites || [],
+        disabled: doc.data().disabled || false,
       })) as User[];
 
       setUsers(usersData);
@@ -73,8 +73,6 @@ const AdminPage: React.FC = () => {
     }
   };
 
-
-  // Fixed delete user function
   const handleDeleteUser = async (userId: string) => {
     if (!confirm('Are you sure you want to permanently delete this user?')) return;
 
@@ -86,7 +84,6 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  // Fixed reset password function
   const handleResetPassword = async (email: string) => {
     try {
       await handleUserAction('resetPassword', { email });
@@ -96,7 +93,6 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  // Fixed toggle user status function
   const handleToggleUserStatus = async (userId: string, isCurrentlyDisabled: boolean) => {
     try {
       await handleUserAction('toggleUserStatus', {
@@ -113,6 +109,7 @@ const AdminPage: React.FC = () => {
       console.error('Error updating user status:', err);
     }
   };
+
   const handleChangeUserRole = async (userId: string, newRole: string) => {
     try {
       await handleUserAction('changeUserRole', { userId, newRole });
@@ -130,8 +127,6 @@ const AdminPage: React.FC = () => {
     }
   };
 
-
-  // Fixed create user function
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -181,7 +176,7 @@ const AdminPage: React.FC = () => {
     );
   }
 
-  if (userData.role !== 'admin') {
+  if (!['admin'].includes(userData.role)) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
@@ -280,7 +275,7 @@ const AdminPage: React.FC = () => {
                           <RefreshCw className="h-5 w-5" />
                         </button>
                         <button
-                          onClick={() => handleToggleUserStatus(user.uid, user.disabled ?? false)} // ensure disabled is a boolean
+                          onClick={() => handleToggleUserStatus(user.uid, user.disabled ?? false)}
                           className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-full"
                           title={user.disabled ? "Enable User" : "Disable User"}
                         >
@@ -301,7 +296,6 @@ const AdminPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Create User Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
@@ -310,9 +304,7 @@ const AdminPage: React.FC = () => {
             <form onSubmit={handleCreateUser}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                   <input
                     type="email"
                     value={newUser.email}
@@ -323,9 +315,7 @@ const AdminPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                   <input
                     type="password"
                     value={newUser.password}
@@ -335,23 +325,20 @@ const AdminPage: React.FC = () => {
                     minLength={6}
                   />
                 </div>
+
                 <div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Role
-                    </label>
-                    <select
-                      value={newUser.role}
-                      onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      required
-                    >
-                      <option value="">-- Select Role --</option>
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
-                      <option value="super">Super</option>
-                    </select>
-                  </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    required
+                  >
+                    <option value="">-- Select Role --</option>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                    <option value="super">Super</option>
+                  </select>
                 </div>
 
                 <div className="mt-6 flex justify-end space-x-3">
