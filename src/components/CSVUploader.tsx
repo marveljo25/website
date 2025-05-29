@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { Upload, Check, AlertCircle } from 'lucide-react';
-// Supabase client
-import { supabase } from '../supabase/client';
+import { supabase } from '../supabase/config';
 
 const CSVUploader: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
