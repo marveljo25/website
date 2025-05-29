@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../supabaseClient';
 
 type LogEntry = {
   id: string;
-  performedBy: string; // Admin who performed the action (email)
+  performedBy: string; // Admin email who performed the action
   targetUser: string;  // Target user's email
   action: string;
-  timestamp: any;
+  timestamp: string;   // ISO string timestamp from Postgres
 };
 
 const LogPage: React.FC = () => {
@@ -18,23 +17,21 @@ const LogPage: React.FC = () => {
 
   useEffect(() => {
     const fetchLogs = async () => {
+      setLoading(true);
+      setError('');
       try {
-        const logsSnapshot = await getDocs(
-          query(collection(db, 'logs'), orderBy('timestamp', 'desc'))
-        );
+        const { data, error } = await supabase
+          .from<LogEntry>('logs')
+          .select('*')
+          .order('timestamp', { ascending: false });
 
-        const logsData = logsSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            performedBy: data.performedBy || 'Unknown',
-            targetUser: data.targetUser || 'Unknown',
-            action: data.action,
-            timestamp: data.timestamp,
-          } as LogEntry;
-        });
+        if (error) throw error;
+        if (!data) {
+          setLogs([]);
+          return;
+        }
 
-        setLogs(logsData);
+        setLogs(data);
       } catch (err) {
         console.error('Failed to fetch logs:', err);
         setError('Failed to load logs');
@@ -76,28 +73,28 @@ const LogPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => (
-                  <tr
-                    key={log.id}
-                    className="border-t hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-4 py-3">{log.performedBy}</td>
-                    <td className="px-4 py-3">{log.action}</td>
-                    <td className="px-4 py-3">{log.targetUser}</td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {log.timestamp
-                        ? new Date(log.timestamp).toLocaleString()
-                        : '—'}
-
-                    </td>
-                  </tr>
-                ))}
-                {logs.length === 0 && (
+                {logs.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
                       No logs found.
                     </td>
                   </tr>
+                ) : (
+                  logs.map(log => (
+                    <tr
+                      key={log.id}
+                      className="border-t hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-4 py-3">{log.performedBy}</td>
+                      <td className="px-4 py-3">{log.action}</td>
+                      <td className="px-4 py-3">{log.targetUser}</td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {log.timestamp
+                          ? new Date(log.timestamp).toLocaleString()
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
