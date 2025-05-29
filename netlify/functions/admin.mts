@@ -1,94 +1,124 @@
-import { initializeApp, cert, getApps } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
-import * as dotenv from "dotenv";
+import { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
 
-dotenv.config();
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Use the service role key for admin operations
+);
 
-const firebaseCredentials = process.env.FIREBASE_CREDENTIALS;
-if (!firebaseCredentials) {
-  throw new Error("FIREBASE_CREDENTIALS environment variable is missing");
-}
-
-// Decode and parse credentials
-const decoded = Buffer.from(firebaseCredentials, 'base64').toString('utf-8');
-const serviceAccount = JSON.parse(decoded);
-
-// Prevent reinitializing in Netlify's cold starts
-if (!getApps().length) {
-  initializeApp({
-    credential: cert(serviceAccount),
-  });
-}
-
-const adminAuth = getAuth();
-const db = getFirestore();
-
-export async function handler(event: any) {
+export const handler: Handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: 'Method Not Allowed' }),
+    };
+  }
 
   try {
-    const { action, userId, email, password, disabled, newRole, performedBy } = JSON.parse(event.body || '{}');
-    const token = event.headers.authorization?.split(' ')[1];
+    const { action, performedBy, ...payload } = JSON.parse(event.body || '{}');
 
-    if (!token) {
+    if (!performedBy || !action) {
       return {
-        statusCode: 401,
-        body: JSON.stringify({ error: "Unauthorized" }),
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Missing action or performedBy' }),
       };
     }
 
-    let result: any = null;
-    const timestamp = new Date().toISOString();
-
     switch (action) {
-      case 'deleteUser':
-        await adminAuth.deleteUser(userId);
-        result = { message: "User deleted" };
-        break;
+      case 'createUser': {
+        const { email, password, role } = payload;
+        const { data, error } = await supabase.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+        });
 
-      case 'resetPassword':
-        await adminAuth.generatePasswordResetLink(email);
-        result = { message: "Password reset email sent" };
-        break;
+        if (error) throw error;
 
-      case 'toggleUserStatus':
-        await adminAuth.updateUser(userId, { disabled });
-        result = { message: "User status updated" };
-        break;
+        const uid = data.user?.id;
 
-      case 'createUser':
-        const userRecord = await adminAuth.createUser({ email, password });
-        result = { uid: userRecord.uid };
-        break;
-      case 'changeUserRole':
-        await db.collection('users').doc(userId).update({ role: newRole });
-        result = { message: "User role updated" };
-        break;
+        if (uid) {
+          await supabase
+            .from('users')
+            .insert({
+              uid,
+              email,
+              role,
+              displayName: email.split('@')[0],
+              favorites: [],
+              disabled: false,
+            });
+        }
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ uid }),
+        };
+      }
+
+      case 'deleteUser': {
+        const { userId } = payload;
+        await supabase.auth.admin.deleteUser(userId);
+        await supabase.from('users').delete().eq('uid', userId);
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ message: 'User deleted' }),
+        };
+      }
+
+      case 'resetPassword': {
+        const { email } = payload;
+        // Supabase doesn't support sending password reset emails via service role directly
+        // Workaround: use the public client on the frontend or send via your own email logic
+        return {
+          statusCode: 501,
+          body: JSON.stringify({
+            error: 'Password reset not supported server-side with Supabase',
+          }),
+        };
+      }
+
+      case 'toggleUserStatus': {
+        const { userId, disabled } = payload;
+        await supabase
+          .from('users')
+          .update({ disabled })
+          .eq('uid', userId);
+
+        await supabase.auth.admin.updateUserById(userId, {
+          banned: disabled,
+        });
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ message: 'User status updated' }),
+        };
+      }
+
+      case 'changeUserRole': {
+        const { userId, newRole } = payload;
+        await supabase
+          .from('users')
+          .update({ role: newRole })
+          .eq('uid', userId);
+
+        return {
+          statusCode: 200,
+          body: JSON.stringify({ message: 'User role updated' }),
+        };
+      }
 
       default:
         return {
           statusCode: 400,
-          body: JSON.stringify({ error: "Invalid action" }),
+          body: JSON.stringify({ error: `Unknown action: ${action}` }),
         };
     }
-    const targetUserRecord = await adminAuth.getUser(userId);
-    const targetEmail = targetUserRecord.email;
-    await db.collection("logs").add({
-      action,
-      performedBy: performedBy,
-      targetUser: targetEmail || userId,
-      timestamp,
-    });
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify(result),
-    };
-  } catch (error: any) {
-    console.error("Admin function error:", error);
+  } catch (err: any) {
+    console.error('Admin function error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      body: JSON.stringify({ error: err.message || 'Internal Server Error' }),
     };
   }
-}
+};
