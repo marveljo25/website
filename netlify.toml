@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"   # Command to build your project
+  publish = "build"           # Directory where your build output will be placed
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev"     # Command to start your development server
+  port = 3000
+  functions = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["firebase-admin"]
+  included_files = ["netlify/functions/*.mts"]
+
+
+[[plugins]]
+  package = "@netlify/plugin-functions-install-core"  # Required for handling Netlify functions
