@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabase'; // Your supabase client instance
+import { supabase } from '../supabase/config';
 import { Property } from '../types';
 import Navbar from '../components/Navbar';
 import PropertyCard from '../components/PropertyCard';
