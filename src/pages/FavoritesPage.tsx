@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../firebase/config';
+import { supabase } from '../supabaseClient';
 import { Property } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
@@ -12,44 +11,39 @@ const FavoritesPage: React.FC = () => {
   const [favoriteProperties, setFavoriteProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   useEffect(() => {
     const fetchFavorites = async () => {
       if (!userData) return;
-      
+
       setIsLoading(true);
       setError('');
-      
+
       try {
         if (userData.favorites.length === 0) {
           setFavoriteProperties([]);
           setIsLoading(false);
           return;
         }
-        
-        // Firestore doesn't support array contains with more than 10 items
-        // So we need to batch our requests if we have more than 10 favorites
-        const batchSize = 10;
+
+        const batchSize = 10; // optional batching, adjust as needed
         let allProperties: Property[] = [];
-        
+
         for (let i = 0; i < userData.favorites.length; i += batchSize) {
           const batch = userData.favorites.slice(i, i + batchSize);
-          
-          const q = query(
-            collection(db, 'properties'),
-            where('__name__', 'in', batch)
-          );
-          
-          const snapshot = await getDocs(q);
-          
-          const properties = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as Property[];
-          
-          allProperties = [...allProperties, ...properties];
+
+          const { data, error } = await supabase
+            .from<Property>('properties')
+            .select('*')
+            .in('id', batch);
+
+          if (error) throw error;
+
+          if (data) {
+            allProperties = [...allProperties, ...data];
+          }
         }
-        
+
         setFavoriteProperties(allProperties);
       } catch (err) {
         console.error('Error fetching favorite properties:', err);
@@ -58,7 +52,7 @@ const FavoritesPage: React.FC = () => {
         setIsLoading(false);
       }
     };
-    
+
     fetchFavorites();
   }, [userData]);
 
@@ -87,16 +81,16 @@ const FavoritesPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Your Favorite Properties</h1>
-        
+
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
             {error}
           </div>
         )}
-        
+
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(3)].map((_, index) => (
