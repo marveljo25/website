@@ -4,7 +4,7 @@ import Navbar from '../components/Navbar';
 import CSVUploader from '../components/CSVUploader';
 import { ShieldAlert, Trash2, RefreshCw, Lock, Unlock, UserPlus } from 'lucide-react';
 import { User } from '../types';
-import { supabase } from '../supabase'; // Your supabase client instance
+import { supabase } from '../supabase/config';
 
 const AdminPage: React.FC = () => {
   const { userData } = useAuth();
