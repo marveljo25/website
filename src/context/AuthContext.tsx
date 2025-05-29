@@ -1,26 +1,12 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import {
-  User as FirebaseUser,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  signInWithPopup,
-  sendSignInLinkToEmail,
-  isSignInWithEmailLink,
-  signInWithEmailLink,
-} from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { auth, db, googleProvider } from "../firebase/config";
-import { User } from "../types";
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User } from '../types';
+import { supabase } from '../supabase/config';
 
 interface AuthContextType {
-  currentUser: FirebaseUser | null;
-  userData: User | null;
+  currentUser: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
-  verifyEmail: (email: string) => Promise<void>;
-  confirmOTP: (otp: string) => Promise<void>;
   logout: () => Promise<void>;
   addToFavorites: (propertyId: string) => Promise<void>;
   removeFromFavorites: (propertyId: string) => Promise<void>;
@@ -31,7 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
@@ -39,151 +25,83 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [userData, setUserData] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [verificationEmail, setVerificationEmail] = useState<string | null>(
-    null
-  );
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      // for later use
-      if (user) {
-        const userDocRef = doc(db, "users", user.uid);
-        const userDoc = await getDoc(userDocRef);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
 
-        if (userDoc.exists()) {
-          setUserData(userDoc.data() as User);
-        } else {
-          const newUser: User = {
-            uid: user.uid,
-            email: user.email || "",
-            displayName: user.displayName || "",
-            photoURL: user.photoURL || undefined,
-            role: "user",
-            favorites: [],
-          };
-
-          await setDoc(userDocRef, newUser);
-          setUserData(newUser);
+        if (!error && userData) {
+          setCurrentUser(userData as User);
         }
       } else {
-        setUserData(null);
+        setCurrentUser(null);
       }
-
       setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
   };
 
   const loginWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-
-    const userDocRef = doc(db, "users", user.uid);
-    const userDoc = await getDoc(userDocRef);
-
-    if (!userDoc.exists()) {
-      const existingUser = auth.currentUser;
-      if (!existingUser) {
-        await signOut(auth);
-        throw new Error("Unauthorized: This Google account is not registered.");
-      } else {
-        const newUser: User = {
-          uid: user.uid,
-          email: user.email || "",
-          displayName: user.displayName || "",
-          photoURL: user.photoURL || undefined,
-          role: "user",
-          favorites: [],
-        };
-        await setDoc(userDocRef, newUser);
-        setUserData(newUser);
-      }
-    }
-  };
-
-  const verifyEmail = async (email: string) => {
-    const actionCodeSettings = {
-      url: window.location.href,
-      handleCodeInApp: true,
-    };
-
-    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
-    setVerificationEmail(email);
-    window.localStorage.setItem("emailForSignIn", email);
-  };
-
-  const confirmOTP = async (otp: string) => {
-    if (!verificationEmail) {
-      throw new Error("No email to verify");
-    }
-
-    if (isSignInWithEmailLink(auth, window.location.href)) {
-      try {
-        await signInWithEmailLink(
-          auth,
-          verificationEmail,
-          window.location.href
-        );
-        window.localStorage.removeItem("emailForSignIn");
-        setVerificationEmail(null);
-      } catch (error) {
-        console.error("Error signing in with email link:", error);
-        throw error;
-      }
-    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+    });
+    if (error) throw error;
   };
 
   const logout = async () => {
-    await signOut(auth);
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   };
 
   const addToFavorites = async (propertyId: string) => {
-    if (!currentUser || !userData) return;
+    if (!currentUser) return;
 
-    const updatedFavorites = [...userData.favorites, propertyId];
+    const newFavorites = [...currentUser.favorites, propertyId];
+    const { error } = await supabase
+      .from('users')
+      .update({ favorites: newFavorites })
+      .eq('id', currentUser.id);
 
-    await setDoc(
-      doc(db, "users", currentUser.uid),
-      { ...userData, favorites: updatedFavorites },
-      { merge: true }
-    );
-
-    setUserData({ ...userData, favorites: updatedFavorites });
+    if (error) throw error;
+    setCurrentUser({ ...currentUser, favorites: newFavorites });
   };
 
   const removeFromFavorites = async (propertyId: string) => {
-    if (!currentUser || !userData) return;
+    if (!currentUser) return;
 
-    const updatedFavorites = userData.favorites.filter(
-      (id) => id !== propertyId
-    );
+    const newFavorites = currentUser.favorites.filter(id => id !== propertyId);
+    const { error } = await supabase
+      .from('users')
+      .update({ favorites: newFavorites })
+      .eq('id', currentUser.id);
 
-    await setDoc(
-      doc(db, "users", currentUser.uid),
-      { ...userData, favorites: updatedFavorites },
-      { merge: true }
-    );
-
-    setUserData({ ...userData, favorites: updatedFavorites });
+    if (error) throw error;
+    setCurrentUser({ ...currentUser, favorites: newFavorites });
   };
 
   const value = {
     currentUser,
-    userData,
     loading,
     login,
     loginWithGoogle,
-    verifyEmail,
-    confirmOTP,
     logout,
     addToFavorites,
     removeFromFavorites,

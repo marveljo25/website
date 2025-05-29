@@ -1,5 +1,3 @@
-import { Timestamp } from "firebase/firestore";
-
 export interface Property {
   id: string;
   kode: number;
@@ -22,15 +20,15 @@ export interface Property {
   images: string[];
   judul: string;
   description: string;
-  timestamp: Timestamp
+  created_at: string;
 }
 
 export interface User {
-  uid: string;
+  id: string;
   email: string;
-  displayName: string;
-  photoURL?: string;
-  role: string
+  display_name: string;
+  photo_url?: string;
+  role: string;
   favorites: string[];
   disabled?: boolean;
 }
