@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase } from '../supabase'; // Your supabase client instance
 import { Property } from '../types';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
